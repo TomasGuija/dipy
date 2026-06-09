@@ -3,7 +3,7 @@
 Pipeline:
 
 1. Reslice both images by the same downsampling factor.
-2. Skull-strip both images with SynthSeg.
+2. Skull-strip both images and save SynthSeg labels.
 3. Fill holes and keep the largest connected mask component.
 4. Rigidly prealign the moving image to the fixed image.
 5. Run DIPY SyN and ANTs SyN from the same prealigned inputs.
@@ -46,6 +46,7 @@ from dipy.align.transforms import RigidTransform3D, TranslationTransform3D
 
 _SYNTHSEG_MODEL = None
 METRIC_NAMES = ("ncc", "nmi")
+OVERLAP_METRIC_NAMES = ("dice", "jaccard")
 
 
 def load_yaml(path: str | Path) -> dict:
@@ -128,12 +129,14 @@ def skull_strip(
     in_path: str | Path,
     out_img_path: str | Path,
     out_mask_path: str | Path,
+    out_labels_path: str | Path,
     *,
     use_cuda: bool,
 ) -> Path:
     out_img_path = Path(out_img_path)
     out_mask_path = Path(out_mask_path)
-    if out_img_path.exists() and out_mask_path.exists():
+    out_labels_path = Path(out_labels_path)
+    if out_img_path.exists() and out_mask_path.exists() and out_labels_path.exists():
         print(f"Reusing skull-stripped image: {out_img_path}")
         return out_img_path
 
@@ -146,10 +149,11 @@ def skull_strip(
 
     data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
 
-    _, _, mask = get_synthseg_model(use_cuda).predict(data, img.affine)
+    labels, _, mask = get_synthseg_model(use_cuda).predict(data, img.affine)
     mask = binary_fill_holes(mask.astype(bool))
     mask = keep_largest_component(mask)
     brain = data * mask
+    labels = labels.astype(np.int16) * mask.astype(np.int16)
 
     brain_img = nib.Nifti1Image(brain.astype(np.float32), img.affine)
     nib.save(brain_img, str(out_img_path))
@@ -157,14 +161,22 @@ def skull_strip(
     mask_img = nib.Nifti1Image(mask.astype(np.uint8), img.affine)
     nib.save(mask_img, str(out_mask_path))
 
+    labels_img = nib.Nifti1Image(labels, img.affine)
+    nib.save(labels_img, str(out_labels_path))
+
     return out_img_path
 
 
 def rigid_prealign(
-    fixed_path: str | Path, moving_path: str | Path, out_path: str | Path
+    fixed_path: str | Path,
+    moving_path: str | Path,
+    out_path: str | Path,
+    moving_labels_path: str | Path | None = None,
+    out_labels_path: str | Path | None = None,
 ) -> Path:
     out_path = Path(out_path)
-    if out_path.exists():
+    out_labels_path = Path(out_labels_path) if out_labels_path is not None else None
+    if out_path.exists() and (out_labels_path is None or out_labels_path.exists()):
         print(f"Reusing rigid prealignment: {out_path}")
         return out_path
 
@@ -217,6 +229,17 @@ def rigid_prealign(
         str(out_path),
     )
 
+    if moving_labels_path is not None and out_labels_path is not None:
+        moving_labels_img = nib.load(str(moving_labels_path))
+        moving_labels = np.squeeze(np.asarray(moving_labels_img.dataobj))
+        prealigned_labels = rigid.transform(moving_labels, interpolation="nearest")
+        nib.save(
+            nib.Nifti1Image(
+                prealigned_labels.astype(np.int16), fixed_img.affine, fixed_img.header
+            ),
+            str(out_labels_path),
+        )
+
     return out_path
 
 
@@ -226,7 +249,7 @@ def prepare_pair(
     *,
     downsample_factor: float,
     use_cuda: bool,
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     prepared_out = pair_out / "prepared"
     inputs_out = prepared_out / "inputs"
     skullstrip_out = prepared_out / "skullstrip"
@@ -247,12 +270,14 @@ def prepare_pair(
         fixed_resliced,
         skullstrip_out / "fixed_brain.nii.gz",
         skullstrip_out / "fixed_mask.nii.gz",
+        skullstrip_out / "fixed_labels.nii.gz",
         use_cuda=use_cuda,
     )
     moving_brain = skull_strip(
         moving_resliced,
         skullstrip_out / "moving_brain.nii.gz",
         skullstrip_out / "moving_mask.nii.gz",
+        skullstrip_out / "moving_labels.nii.gz",
         use_cuda=use_cuda,
     )
 
@@ -260,8 +285,15 @@ def prepare_pair(
         fixed_brain,
         moving_brain,
         pair_out / "prealign" / "moving_rigid_to_fixed.nii.gz",
+        skullstrip_out / "moving_labels.nii.gz",
+        pair_out / "prealign" / "moving_labels_rigid_to_fixed.nii.gz",
     )
-    return fixed_brain, moving_prealigned
+    return (
+        fixed_brain,
+        moving_prealigned,
+        skullstrip_out / "fixed_labels.nii.gz",
+        pair_out / "prealign" / "moving_labels_rigid_to_fixed.nii.gz",
+    )
 
 
 def gains_vs_baseline(metrics: dict) -> dict:
@@ -307,6 +339,33 @@ def summarize(samples: list[dict]) -> dict:
     return summary
 
 
+def summarize_overlap(samples: list[dict]) -> dict:
+    summary = {}
+    methods = sorted(
+        method for sample in samples for method in sample.get("overlap_metrics", {})
+    )
+
+    for method in methods:
+        method_samples = [
+            sample["overlap_metrics"][method]
+            for sample in samples
+            if method in sample.get("overlap_metrics", {})
+        ]
+
+        summary[method] = {"n": len(method_samples)}
+
+        for section in ("whole_brain", "mean_labels"):
+            summary[method][section] = {}
+            for metric in ("dice", "jaccard"):
+                values = [sample[section][metric] for sample in method_samples]
+                summary[method][section][metric] = {
+                    "mean": statistics.mean(values),
+                    "std": statistics.stdev(values) if len(values) > 1 else 0.0,
+                }
+
+    return summary
+
+
 def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
@@ -321,7 +380,7 @@ def run_pair(
     args: argparse.Namespace,
 ) -> dict:
     pair_out = out_dir / pair_id
-    fixed, moving = prepare_pair(
+    fixed, moving, fixed_labels, moving_labels = prepare_pair(
         row,
         pair_out,
         downsample_factor=args.downsample_factor,
@@ -329,10 +388,22 @@ def run_pair(
     )
 
     print("Running DIPY SyN")
-    dipy_result = run_dipy_syn(fixed, moving, pair_out / "dipy", config)
+    dipy_result = run_dipy_syn(
+        fixed,
+        moving,
+        pair_out / "dipy",
+        config,
+        moving_labels_path=moving_labels,
+    )
 
     print("Running ANTs SyN")
-    ants_result = run_ants_syn(fixed, moving, pair_out / "ants", config)
+    ants_result = run_ants_syn(
+        fixed,
+        moving,
+        pair_out / "ants",
+        config,
+        moving_labels_path=moving_labels,
+    )
 
     print("Evaluating registration outputs")
     return evaluate_registration(
@@ -343,6 +414,10 @@ def run_pair(
         warped_ants_path=ants_result["warped_image"],
         warped_dipy_path=dipy_result["warped_image"],
         out_json=pair_out / "evaluation.json",
+        fixed_labels_path=fixed_labels,
+        moving_labels_path=moving_labels,
+        warped_ants_labels_path=ants_result["warped_labels"],
+        warped_dipy_labels_path=dipy_result["warped_labels"],
     )
 
 
@@ -379,6 +454,7 @@ def main() -> None:
         },
         "samples": [],
         "summary": {},
+        "overlap_summary": {},
     }
 
     for index, row in enumerate(pairs, start=1):
@@ -395,10 +471,12 @@ def main() -> None:
                 "fixed_path": row["fixed_path"],
                 "moving_path": row["moving_path"],
                 "metrics": evaluation["metrics"],
+                "overlap_metrics": evaluation.get("overlap_metrics", {}),
                 "gains_vs_baseline": gains_vs_baseline(evaluation["metrics"]),
             }
         )
         results["summary"] = summarize(results["samples"])
+        results["overlap_summary"] = summarize_overlap(results["samples"])
         write_json(args.out_dir / "benchmark_results.json", results)
 
     print(f"\nDone. Results saved in: {args.out_dir}")

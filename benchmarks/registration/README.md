@@ -23,18 +23,26 @@ For each pair, `run_benchmark.py` applies the same preprocessing before running
 either backend:
 
 1. Reslice both images by the same downsampling factor.
-2. Skull-strip both images with SynthSeg.
+2. Skull-strip both images with SynthSeg and save the SynthSeg labels.
 3. Fill holes and keep the largest connected mask component.
 4. Rigidly prealign the moving image to the fixed image.
 5. Run DIPY SyN and ANTsPy SyN from the same prealigned inputs.
-6. Evaluate both warped outputs inside the fixed brain mask with
-   framework-independent metrics.
+6. Warp moving SynthSeg labels with nearest-neighbor interpolation.
+7. Evaluate both warped outputs inside the fixed brain mask with
+   framework-independent intensity metrics and SynthSeg-derived label overlap.
 
 The current evaluator computes:
 
 ```text
 ncc
 nmi
+```
+
+The label-overlap evaluator computes whole-brain and mean-per-label:
+
+```text
+dice
+jaccard
 ```
 
 Metrics are written per pair and progressively aggregated into:

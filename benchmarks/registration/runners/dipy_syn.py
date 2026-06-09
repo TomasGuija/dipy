@@ -30,6 +30,7 @@ def run_dipy_syn(
     moving_path: str | Path,
     out_dir: str | Path,
     config: dict,
+    moving_labels_path: str | Path | None = None,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -74,7 +75,19 @@ def run_dipy_syn(
 
     nib.save(nib.Nifti1Image(warped.astype(np.float32), fixed_img.affine), warped_path)
 
-    return {"warped_image": str(warped_path)}
+    result = {"warped_image": str(warped_path)}
+    if moving_labels_path is not None:
+        moving_labels_img = nib.load(str(moving_labels_path))
+        moving_labels = as_3d(np.asarray(moving_labels_img.dataobj), moving_labels_path)
+        warped_labels = mapping.transform(moving_labels, interpolation="nearest")
+        warped_labels_path = out_dir / "warped_dipy_labels.nii.gz"
+        nib.save(
+            nib.Nifti1Image(warped_labels.astype(np.int16), fixed_img.affine),
+            warped_labels_path,
+        )
+        result["warped_labels"] = str(warped_labels_path)
+
+    return result
 
 
 def parse_args() -> argparse.Namespace:
