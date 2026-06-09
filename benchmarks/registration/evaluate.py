@@ -47,6 +47,36 @@ def evaluate_candidate(
     }
 
 
+def dice_jaccard(a: np.ndarray, b: np.ndarray) -> dict[str, float]:
+    intersection = int(np.count_nonzero(a & b))
+    a_count = int(np.count_nonzero(a))
+    b_count = int(np.count_nonzero(b))
+    union = int(np.count_nonzero(a | b))
+    return {
+        "dice": float(2 * intersection / max(a_count + b_count, 1)),
+        "jaccard": float(intersection / max(union, 1)),
+    }
+
+
+def evaluate_label_overlap(
+    fixed_labels: np.ndarray, candidate_labels: np.ndarray
+) -> dict:
+    whole_brain = dice_jaccard(fixed_labels > 0, candidate_labels > 0)
+
+    label_scores = [
+        dice_jaccard(fixed_labels == label_id, candidate_labels == label_id)
+        for label_id in np.union1d(fixed_labels, candidate_labels)
+        if label_id != 0
+    ]
+
+    mean_labels = {
+        metric: float(np.mean([score[metric] for score in label_scores]))
+        for metric in ("dice", "jaccard")
+    }
+
+    return {"whole_brain": whole_brain, "mean_labels": mean_labels}
+
+
 def evaluate_registration(
     pair_id: str,
     fixed_path: str | Path,
@@ -55,6 +85,10 @@ def evaluate_registration(
     warped_ants_path: str | Path,
     warped_dipy_path: str | Path,
     out_json: str | Path,
+    fixed_labels_path: str | Path | None = None,
+    moving_labels_path: str | Path | None = None,
+    warped_ants_labels_path: str | Path | None = None,
+    warped_dipy_labels_path: str | Path | None = None,
 ) -> dict:
     fixed_img, fixed = load_image(fixed_path)
     moving_img, moving = load_image(moving_path)
@@ -94,6 +128,38 @@ def evaluate_registration(
         },
     }
 
+    if all(
+        path is not None
+        for path in (
+            fixed_labels_path,
+            moving_labels_path,
+            warped_ants_labels_path,
+            warped_dipy_labels_path,
+        )
+    ):
+        fixed_labels_img, fixed_labels = load_image(fixed_labels_path)
+        moving_labels_img, moving_labels = load_image(moving_labels_path)
+        ants_labels_img, ants_labels = load_image(warped_ants_labels_path)
+        dipy_labels_img, dipy_labels = load_image(warped_dipy_labels_path)
+        for name, labels_img in {
+            "Fixed labels": fixed_labels_img,
+            "Moving labels": moving_labels_img,
+            "ANTs warped labels": ants_labels_img,
+            "DIPY warped labels": dipy_labels_img,
+        }.items():
+            if not same_grid(fixed_img, labels_img):
+                raise ValueError(f"{name} are not on the fixed image grid.")
+
+        label_candidates = {
+            "baseline": moving_labels.astype(np.int32),
+            "ants": ants_labels.astype(np.int32),
+            "dipy": dipy_labels.astype(np.int32),
+        }
+        output["overlap_metrics"] = {
+            name: evaluate_label_overlap(fixed_labels.astype(np.int32), labels)
+            for name, labels in label_candidates.items()
+        }
+
     out_json = Path(out_json)
     out_json.parent.mkdir(parents=True, exist_ok=True)
     with out_json.open("w") as f:
@@ -110,6 +176,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fixed-mask", required=True)
     parser.add_argument("--warped-ants", required=True)
     parser.add_argument("--warped-dipy", required=True)
+    parser.add_argument("--fixed-labels")
+    parser.add_argument("--moving-labels")
+    parser.add_argument("--warped-ants-labels")
+    parser.add_argument("--warped-dipy-labels")
     parser.add_argument("--out-json", required=True)
     return parser.parse_args()
 
@@ -123,6 +193,10 @@ def main() -> None:
         fixed_mask_path=args.fixed_mask,
         warped_ants_path=args.warped_ants,
         warped_dipy_path=args.warped_dipy,
+        fixed_labels_path=args.fixed_labels,
+        moving_labels_path=args.moving_labels,
+        warped_ants_labels_path=args.warped_ants_labels,
+        warped_dipy_labels_path=args.warped_dipy_labels,
         out_json=args.out_json,
     )
 

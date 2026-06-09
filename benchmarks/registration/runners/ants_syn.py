@@ -30,6 +30,7 @@ def run_ants_syn(
     moving_path: str | Path,
     out_dir: str | Path,
     config: dict,
+    moving_labels_path: str | Path | None = None,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -58,9 +59,23 @@ def run_ants_syn(
 
     warped_path = out_dir / "warped_ants.nii.gz"
     ants.image_write(reg["warpedmovout"], str(warped_path))
+    result = {"warped_image": str(warped_path)}
+
+    if moving_labels_path is not None:
+        moving_labels = ants.image_read(str(moving_labels_path))
+        warped_labels = ants.apply_transforms(
+            fixed=fixed,
+            moving=moving_labels,
+            transformlist=reg["fwdtransforms"],
+            interpolator="genericLabel",
+        )
+        warped_labels_path = out_dir / "warped_ants_labels.nii.gz"
+        ants.image_write(warped_labels, str(warped_labels_path))
+        result["warped_labels"] = str(warped_labels_path)
+
     remove_transform_files(reg)
 
-    return {"warped_image": str(warped_path)}
+    return result
 
 
 def parse_args() -> argparse.Namespace:
