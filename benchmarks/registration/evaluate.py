@@ -10,7 +10,7 @@ import nibabel as nib
 from nibabel.processing import resample_from_to
 import numpy as np
 from scipy.stats import pearsonr
-from skimage.metrics import mean_squared_error, normalized_mutual_information
+from skimage.metrics import normalized_mutual_information
 
 EPS = 1e-8
 
@@ -41,7 +41,6 @@ def evaluate_candidate(
     candidate_values = normalized_values(candidate[mask])
     return {
         "ncc": float(pearsonr(fixed_values, candidate_values)[0]),
-        "mse": float(mean_squared_error(fixed_values, candidate_values)),
         "nmi": float(
             normalized_mutual_information(fixed_values, candidate_values, bins=64)
         ),
