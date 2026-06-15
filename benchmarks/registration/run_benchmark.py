@@ -17,6 +17,14 @@ Example, from benchmarks/registration:
         --out-dir outputs/oasis2_syn_cc_ds2 \
         --downsample-factor 2 \
         --n 5
+
+Example, run only one pair index:
+
+    python run_benchmark.py \
+        --pairs data/oasis2_pairs.csv \
+        --config configs/syn_cc_default.yaml \
+        --out-dir outputs/oasis2_syn_cc_ds2 \
+        --pair-index 0
 """
 
 from __future__ import annotations
@@ -73,6 +81,18 @@ def sample_pairs(
     if n > len(rows):
         raise ValueError(f"Requested n={n}, but only found {len(rows)} pairs.")
     return random.Random(seed).sample(rows, n)
+
+
+def select_pair_indices(
+    rows: list[dict[str, str]], pair_index: int | None
+) -> list[tuple[int, dict[str, str]]]:
+    if pair_index is None:
+        return list(enumerate(rows, start=1))
+    if pair_index < 0 or pair_index >= len(rows):
+        raise ValueError(
+            f"Requested pair-index={pair_index}, but found {len(rows)} pairs."
+        )
+    return [(pair_index + 1, rows[pair_index])]
 
 
 def get_pair_id(row: dict[str, str], index: int) -> str:
@@ -372,6 +392,17 @@ def write_json(path: Path, data) -> None:
         json.dump(data, f, indent=2)
 
 
+def sample_result(pair_id: str, row: dict[str, str], evaluation: dict) -> dict:
+    return {
+        "pair_id": pair_id,
+        "fixed_path": row["fixed_path"],
+        "moving_path": row["moving_path"],
+        "metrics": evaluation["metrics"],
+        "overlap_metrics": evaluation.get("overlap_metrics", {}),
+        "gains_vs_baseline": gains_vs_baseline(evaluation["metrics"]),
+    }
+
+
 def run_pair(
     pair_id: str,
     row: dict[str, str],
@@ -434,6 +465,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--downsample-factor", type=float, default=1.0)
     parser.add_argument("--use-cuda", action="store_true")
+    parser.add_argument(
+        "--pair-index",
+        type=int,
+        default=None,
+        help="Run only one zero-based pair index. Useful for cluster jobs.",
+    )
     return parser.parse_args()
 
 
@@ -441,6 +478,7 @@ def main() -> None:
     args = parse_args()
     config = load_yaml(args.config)
     pairs = sample_pairs(read_pairs(args.pairs), args.n, args.seed)
+    indexed_pairs = select_pair_indices(pairs, args.pair_index)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     results = {
@@ -448,16 +486,17 @@ def main() -> None:
             "pairs_file": str(args.pairs),
             "config_file": str(args.config),
             "config": config,
-            "n_pairs": len(pairs),
+            "n_pairs": len(indexed_pairs),
             "seed": args.seed,
             "downsample_factor": args.downsample_factor,
+            "pair_index": args.pair_index,
         },
         "samples": [],
         "summary": {},
         "overlap_summary": {},
     }
 
-    for index, row in enumerate(pairs, start=1):
+    for index, row in indexed_pairs:
         pair_id = get_pair_id(row, index)
         print(f"\n=== {pair_id} ===")
         if not row.get("pair_id", "").strip():
@@ -465,21 +504,18 @@ def main() -> None:
             print(f"moving: {row['moving_path']}")
 
         evaluation = run_pair(pair_id, row, args.out_dir, config, args)
-        results["samples"].append(
-            {
-                "pair_id": pair_id,
-                "fixed_path": row["fixed_path"],
-                "moving_path": row["moving_path"],
-                "metrics": evaluation["metrics"],
-                "overlap_metrics": evaluation.get("overlap_metrics", {}),
-                "gains_vs_baseline": gains_vs_baseline(evaluation["metrics"]),
-            }
-        )
+        sample = sample_result(pair_id, row, evaluation)
+        write_json(args.out_dir / pair_id / "sample_result.json", sample)
+        results["samples"].append(sample)
         results["summary"] = summarize(results["samples"])
         results["overlap_summary"] = summarize_overlap(results["samples"])
-        write_json(args.out_dir / "benchmark_results.json", results)
+        if args.pair_index is None:
+            write_json(args.out_dir / "benchmark_results.json", results)
 
-    print(f"\nDone. Results saved in: {args.out_dir}")
+    if args.pair_index is not None:
+        print(f"\nDone. Pair result saved in: {args.out_dir / pair_id}")
+    else:
+        print(f"\nDone. Results saved in: {args.out_dir}")
 
 
 if __name__ == "__main__":
