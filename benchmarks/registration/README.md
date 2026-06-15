@@ -97,3 +97,11 @@ python run_benchmark.py `
 ```
 
 Use `--use-cuda` to run SynthSeg with CUDA.
+
+---
+
+## Cluster Runs
+
+For larger runs, each pair can be launched as an independent cluster job with
+`--pair-index`. A minimal SLURM array template and result collector are provided
+in [cluster](cluster/README.md).
