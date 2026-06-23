@@ -54,7 +54,6 @@ def run_dipy_syn(
         metric,
         level_iters=registration_cfg["level_iters"],
         step_length=registration_cfg["grad_step"],
-        ss_sigma_factor=dipy_cfg["ss_sigma_factor"],
         opt_tol=registration_cfg["convergence_tol"],
         inv_iter=dipy_cfg["inv_iter"],
         inv_tol=dipy_cfg["inv_tol"],
