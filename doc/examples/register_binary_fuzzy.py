@@ -71,7 +71,6 @@ sdr = SymmetricDiffeomorphicRegistration(
     step_length=1.0,
     level_iters=[50, 100],
     inv_iter=50,
-    ss_sigma_factor=0.1,
     opt_tol=1.0e-3,
 )
 
@@ -134,7 +133,6 @@ sdr = SymmetricDiffeomorphicRegistration(
     step_length=1.0,
     level_iters=[100],
     inv_iter=50,
-    ss_sigma_factor=0.1,
     opt_tol=1.0e-3,
 )
 
