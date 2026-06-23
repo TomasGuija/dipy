@@ -722,7 +722,6 @@ class SynRegistrationFlow(Workflow):
         mopt_double_gradient=True,
         mopt_step_type="",
         step_length=0.25,
-        ss_sigma_factor=0.2,
         opt_tol=1e-5,
         inv_iter=20,
         inv_tol=1e-3,
@@ -787,10 +786,6 @@ class SynRegistrationFlow(Workflow):
         step_length : float, optional
             the length of the maximum displacement vector of the update
             displacement field at each iteration.
-        ss_sigma_factor : float, optional
-            parameter of the scale-space smoothing kernel. For example, the
-            std. dev. of the kernel will be factor*(2^i) in the isotropic case
-            where i = 0, 1, ..., n_scales is the scale.
         opt_tol : float, optional
             the optimization will stop when the estimated derivative of the
             energy profile w.r.t. time falls below this threshold.
@@ -907,7 +902,6 @@ class SynRegistrationFlow(Workflow):
                 metric=current_metric,
                 level_iters=level_iters,
                 step_length=step_length,
-                ss_sigma_factor=ss_sigma_factor,
                 opt_tol=opt_tol,
                 inv_iter=inv_iter,
                 inv_tol=inv_tol,
