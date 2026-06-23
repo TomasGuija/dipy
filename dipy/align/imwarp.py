@@ -8,7 +8,7 @@ import numpy as np
 import numpy.linalg as npl
 
 from dipy.align import Bunch, VerbosityLevels, floating, vector_fields as vfu
-from dipy.align.scalespace import IsotropicScaleSpace
+from dipy.align.scalespace import IsotropicScaleSpace, ScaleSpace
 from dipy.testing.decorators import warning_for_keywords
 from dipy.utils.logging import logger
 
