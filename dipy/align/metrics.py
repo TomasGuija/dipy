@@ -1,10 +1,10 @@
 """Metrics for Symmetric Diffeomorphic Registration"""
 
 import abc
-
+from functools import lru_cache
 import numpy as np
 from numpy import gradient
-from scipy import ndimage
+from scipy import ndimage, special
 
 from dipy.align import (
     crosscorr as cc,
@@ -14,6 +14,50 @@ from dipy.align import (
     vector_fields as vfu,
 )
 from dipy.testing.decorators import warning_for_keywords
+
+
+@lru_cache(maxsize=128)
+def _discrete_gaussian_kernel(variance, max_error=0.001):
+    """Return a 1D discrete Gaussian kernel."""
+    coeffs = [special.ive(0, variance)]
+    kernel_sum = coeffs[0]
+
+    order = 1
+    while kernel_sum < 1.0 - max_error:
+        coeff = special.ive(order, variance)
+        if coeff <= 0:
+            break
+
+        coeffs.append(coeff)
+        kernel_sum += 2.0 * coeff
+        order += 1
+
+    coeffs = np.asarray(coeffs, dtype=np.float64) / kernel_sum
+    kernel = np.concatenate((coeffs[:0:-1], coeffs))
+    return tuple(kernel)
+
+
+def _smooth_displacement_field(field, variance):
+    """Smooth a displacement field with a separable discrete Gaussian kernel."""
+    variance = float(variance)
+    field = np.asarray(field)
+
+    if variance == 0:
+        return np.array(field, copy=True)
+
+    kernel = _discrete_gaussian_kernel(variance)
+    smoothed = np.array(field, copy=True)
+
+    spatial_dim = field.ndim - 1
+    for axis in range(spatial_dim):
+        smoothed = ndimage.convolve1d(
+            smoothed,
+            kernel,
+            axis=axis,
+            mode="nearest",
+        )
+
+    return smoothed
 
 
 class SimilarityMetric:
@@ -223,7 +267,8 @@ class CCMetric(SimilarityMetric):
         dim : int (either 2 or 3)
             the dimension of the image domain
         sigma_diff : the standard deviation of the Gaussian smoothing kernel to
-            be applied to the update field at each iteration
+            be applied to the update field at each iteration. The corresponding
+            variance is used to construct a discrete Gaussian kernel.
         radius : int
             the radius of the squared (cubic) neighborhood at each voxel to be
             considered to compute the cross correlation
@@ -319,6 +364,11 @@ class CCMetric(SimilarityMetric):
         del self.gradient_moving
         del self.gradient_static
 
+    def _smooth_update_field(self, displacement):
+        """Smooth the update field using the configured standard deviation"""
+        variance = float(self.sigma_diff) ** 2
+        return _smooth_displacement_field(displacement, variance)
+    
     def compute_forward(self):
         r"""Computes one step bringing the moving image towards the static.
 
@@ -329,11 +379,7 @@ class CCMetric(SimilarityMetric):
             self.gradient_static, self.factors, self.radius
         )
         displacement = np.array(displacement)
-        for i in range(self.dim):
-            displacement[..., i] = ndimage.gaussian_filter(
-                displacement[..., i], self.sigma_diff
-            )
-        return displacement
+        return self._smooth_update_field(displacement)
 
     def compute_backward(self):
         r"""Computes one step bringing the static image towards the moving.
@@ -345,11 +391,7 @@ class CCMetric(SimilarityMetric):
             self.gradient_moving, self.factors, self.radius
         )
         displacement = np.array(displacement)
-        for i in range(self.dim):
-            displacement[..., i] = ndimage.gaussian_filter(
-                displacement[..., i], self.sigma_diff
-            )
-        return displacement
+        return self._smooth_update_field(displacement)
 
     def get_energy(self):
         r"""Numerical value assigned by this metric to the current image pair
