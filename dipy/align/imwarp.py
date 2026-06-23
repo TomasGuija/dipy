@@ -8,7 +8,7 @@ import numpy as np
 import numpy.linalg as npl
 
 from dipy.align import Bunch, VerbosityLevels, floating, vector_fields as vfu
-from dipy.align.scalespace import ScaleSpace
+from dipy.align.scalespace import IsotropicScaleSpace
 from dipy.testing.decorators import warning_for_keywords
 from dipy.utils.logging import logger
 
@@ -1130,7 +1130,6 @@ class SymmetricDiffeomorphicRegistration(DiffeomorphicRegistration):
         *,
         level_iters=None,
         step_length=0.25,
-        ss_sigma_factor=0.2,
         opt_tol=1e-5,
         inv_iter=20,
         inv_tol=1e-3,
@@ -1158,10 +1157,6 @@ class SymmetricDiffeomorphicRegistration(DiffeomorphicRegistration):
         step_length : float
             the length of the maximum displacement vector of the update
             displacement field at each iteration
-        ss_sigma_factor : float
-            parameter of the scale-space smoothing kernel. For example, the
-            std. dev. of the kernel will be factor*(2^i) in the isotropic case
-            where i = 0, 1, ..., n_scales is the scale
         inv_tol : float
             the displacement field inversion algorithm will stop iterating
             when the inversion error falls below this threshold
@@ -1179,7 +1174,6 @@ class SymmetricDiffeomorphicRegistration(DiffeomorphicRegistration):
 
         self.set_level_iters(level_iters)
         self.step_length = step_length
-        self.ss_sigma_factor = ss_sigma_factor
         self.opt_tol = opt_tol
         self.inv_tol = inv_tol
         self.inv_iter = inv_iter
@@ -1351,33 +1345,29 @@ class SymmetricDiffeomorphicRegistration(DiffeomorphicRegistration):
         if self.verbosity >= VerbosityLevels.DIAGNOSE:
             logger.info(f"Applying zero mask: {self.mask0}")
 
+        sigmas = [float(level) for level in range(self.levels - 1, -1, -1)]
+        factors = [2**level for level in range(self.levels - 1, -1, -1)]
+
         if self.verbosity >= VerbosityLevels.STATUS:
             logger.info(
-                f"Creating scale space from the moving image. Levels: {self.levels}. "
-                f"Sigma factor: {self.ss_sigma_factor:f}."
+                "Creating integer spacing-aware scale spaces. "
+                f"Factors: {factors}. Sigmas: {sigmas}."
             )
 
-        self.moving_ss = ScaleSpace(
+        self.moving_ss = IsotropicScaleSpace(
             moving,
-            self.levels,
+            factors,
+            sigmas,
             image_grid2world=moving_grid2world,
             input_spacing=moving_spacing,
-            sigma_factor=self.ss_sigma_factor,
             mask0=self.mask0,
         )
-
-        if self.verbosity >= VerbosityLevels.STATUS:
-            logger.info(
-                f"Creating scale space from the static image. Levels: {self.levels}. "
-                f"Sigma factor: {self.ss_sigma_factor:f}."
-            )
-
-        self.static_ss = ScaleSpace(
+        self.static_ss = IsotropicScaleSpace(
             static,
-            self.levels,
+            factors,
+            sigmas,
             image_grid2world=static_grid2world,
             input_spacing=static_spacing,
-            sigma_factor=self.ss_sigma_factor,
             mask0=self.mask0,
         )
 
