@@ -432,10 +432,7 @@ class IsotropicScaleSpace(ScaleSpace):
             new_sigmas = np.ones(self.dim) * sigmas[self.num_levels - i - 1]
 
             # Filter along each direction with the appropriate sigma
-            filtered = gaussian_filter(image.astype(np.float64), new_sigmas)
-            filtered = (filtered.astype(np.float64) - np.min(filtered)) / (
-                np.max(filtered) - np.min(filtered)
-            )
+            filtered = gaussian_filter(img, new_sigmas)
             if mask0:
                 filtered *= mask
 
