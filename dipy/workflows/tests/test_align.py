@@ -764,7 +764,6 @@ def test_syn_registration_flow():
             "opt_tol": 1e-5,
             "inv_iter": 20,
             "inv_tol": 1e-3,
-            "ss_sigma_factor": 0.2,
         }
 
         all_args = dict(metric_optional_args, **optimizer_optional_args)
@@ -788,7 +787,6 @@ def test_syn_registration_flow():
             "opt_tol": 1e-4,
             "inv_iter": 40,
             "inv_tol": 1e-3,
-            "ss_sigma_factor": 0.2,
         }
 
         all_args = dict(metric_optional_args, **optimizer_optional_args)
@@ -812,7 +810,6 @@ def test_syn_registration_flow():
             "opt_tol": 1e-4,
             "inv_iter": 40,
             "inv_tol": 1e-3,
-            "ss_sigma_factor": 0.2,
         }
 
         all_args = dict(metric_optional_args, **optimizer_optional_args)

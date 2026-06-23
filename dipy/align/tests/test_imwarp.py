@@ -440,12 +440,10 @@ def test_ssd_2d_demons():
     opt_tol = 1e-4
     inv_iter = 40
     inv_tol = 1e-3
-    ss_sigma_factor = 0.2
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -515,12 +513,10 @@ def test_ssd_2d_gauss_newton():
     opt_tol = 1e-4
     inv_iter = 40
     inv_tol = 1e-3
-    ss_sigma_factor = 0.2
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         metric=similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -678,12 +674,10 @@ def test_ssd_3d_demons():
     opt_tol = 1e-4
     inv_iter = 20
     inv_tol = 1e-3
-    ss_sigma_factor = 0.5
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -731,12 +725,10 @@ def test_ssd_3d_gauss_newton():
     opt_tol = 1e-4
     inv_iter = 20
     inv_tol = 1e-3
-    ss_sigma_factor = 0.5
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -825,12 +817,10 @@ def test_cc_3d():
     opt_tol = 1e-4
     inv_iter = 20
     inv_tol = 1e-3
-    ss_sigma_factor = 0.2
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -891,12 +881,10 @@ def test_em_3d_gauss_newton():
     opt_tol = 1e-4
     inv_iter = 20
     inv_tol = 1e-3
-    ss_sigma_factor = 1.0
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
@@ -1006,12 +994,10 @@ def test_em_3d_demons():
     opt_tol = 1e-4
     inv_iter = 20
     inv_tol = 1e-3
-    ss_sigma_factor = 1.0
     optimizer = imwarp.SymmetricDiffeomorphicRegistration(
         similarity_metric,
         level_iters=level_iters,
         step_length=step_length,
-        ss_sigma_factor=ss_sigma_factor,
         opt_tol=opt_tol,
         inv_iter=inv_iter,
         inv_tol=inv_tol,
