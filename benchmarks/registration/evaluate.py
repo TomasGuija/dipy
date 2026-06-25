@@ -115,8 +115,7 @@ def evaluate_registration(
     }
     mask = fixed_mask > 0
     mask &= np.isfinite(fixed)
-    for candidate in candidates.values():
-        mask &= np.isfinite(candidate)
+
     if not mask.any():
         raise ValueError("Evaluation mask is empty.")
 
