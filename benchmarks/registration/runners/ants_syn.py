@@ -41,13 +41,24 @@ def run_ants_syn(
     registration_cfg = config["registration"]
     ants_cfg = config["ants"]
 
+    metric_name = registration_cfg["metric"].upper()
+
+    if metric_name == "CC":
+        syn_metric = ants_cfg.get("syn_metric", "CC")
+        syn_sampling = registration_cfg["cc_radius"]
+    elif metric_name == "MI":
+        syn_metric = ants_cfg.get("syn_metric", "mattes")
+        syn_sampling = registration_cfg.get("mi_nbins", 32)
+    else:
+        raise ValueError(f"Unsupported ANTs metric: {metric_name}")
+
     reg = ants.registration(
         fixed=fixed,
         moving=moving,
         type_of_transform="SyNOnly",
         initial_transform=registration_cfg["initial_transform"],
-        syn_metric=ants_cfg["syn_metric"],
-        syn_sampling=registration_cfg["cc_radius"],
+        syn_metric=syn_metric,
+        syn_sampling=syn_sampling,
         reg_iterations=registration_cfg["level_iters"],
         grad_step=registration_cfg["grad_step"],
         flow_sigma=ants_cfg["flow_sigma"],

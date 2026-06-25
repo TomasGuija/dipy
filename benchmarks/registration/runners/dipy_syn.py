@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 
 from dipy.align.imwarp import SymmetricDiffeomorphicRegistration
-from dipy.align.metrics import CCMetric
+from dipy.align.metrics import CCMetric, MIMetric
 
 
 def load_config(path: str | Path) -> dict:
@@ -43,12 +43,23 @@ def run_dipy_syn(
 
     registration_cfg = config["registration"]
     dipy_cfg = config["dipy"]
+    
+    metric_name = registration_cfg["metric"].upper()
 
-    metric = CCMetric(
-        3,
-        radius=registration_cfg["cc_radius"],
-        sigma_diff=dipy_cfg["update_field_sigma"],
-    )
+    if metric_name == "CC":
+        metric = CCMetric(
+            3,
+            radius=registration_cfg["cc_radius"],
+            sigma_diff=dipy_cfg["update_field_sigma"],
+        )
+    elif metric_name == "MI":
+        metric = MIMetric(
+            3,
+            nbins=registration_cfg.get("mi_nbins", 32),
+            smooth=dipy_cfg["update_field_sigma"],
+        )
+    else:
+        raise ValueError(f"Unsupported DIPY metric: {metric_name}")
 
     sdr = SymmetricDiffeomorphicRegistration(
         metric,
