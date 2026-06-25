@@ -57,6 +57,14 @@ METRIC_NAMES = ("ncc", "nmi")
 OVERLAP_METRIC_NAMES = ("dice", "jaccard")
 
 
+def timed_call(name: str, func, *args, **kwargs):
+    start = time.perf_counter()
+    result = func(*args, **kwargs)
+    elapsed = time.perf_counter() - start
+    print(f"{name} time: {elapsed:.2f} s ({elapsed / 60:.2f} min)")
+    return result, elapsed
+
+
 def load_yaml(path: str | Path) -> dict:
     with Path(path).open() as f:
         return yaml.safe_load(f)
