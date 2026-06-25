@@ -35,7 +35,7 @@ import json
 from pathlib import Path
 import random
 import statistics
-
+import time
 from evaluate import evaluate_registration
 import nibabel as nib
 import numpy as np
@@ -386,6 +386,28 @@ def summarize_overlap(samples: list[dict]) -> dict:
     return summary
 
 
+def summarize_timings(samples: list[dict]) -> dict:
+    keys = sorted(
+        key
+        for sample in samples
+        for key in sample.get("timings", {})
+    )
+    summary = {}
+
+    for key in keys:
+        values = [
+            sample["timings"][key]
+            for sample in samples
+            if key in sample.get("timings", {})
+        ]
+        summary[key] = {
+            "mean": statistics.mean(values),
+            "std": statistics.stdev(values) if len(values) > 1 else 0.0,
+        }
+
+    return summary
+
+
 def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
@@ -400,6 +422,7 @@ def sample_result(pair_id: str, row: dict[str, str], evaluation: dict) -> dict:
         "metrics": evaluation["metrics"],
         "overlap_metrics": evaluation.get("overlap_metrics", {}),
         "gains_vs_baseline": gains_vs_baseline(evaluation["metrics"]),
+        "timings": evaluation.get("timings", {}),
     }
 
 
@@ -411,7 +434,12 @@ def run_pair(
     args: argparse.Namespace,
 ) -> dict:
     pair_out = out_dir / pair_id
-    fixed, moving, fixed_labels, moving_labels = prepare_pair(
+    timings = {}
+    total_start = time.perf_counter()
+
+    (fixed, moving, fixed_labels, moving_labels), timings["prepare_pair_sec"] = timed_call(
+        "prepare_pair",
+        prepare_pair,
         row,
         pair_out,
         downsample_factor=args.downsample_factor,
@@ -419,7 +447,9 @@ def run_pair(
     )
 
     print("Running DIPY SyN")
-    dipy_result = run_dipy_syn(
+    dipy_result, timings["dipy_syn_sec"] = timed_call(
+        "dipy_syn",
+        run_dipy_syn,
         fixed,
         moving,
         pair_out / "dipy",
@@ -428,7 +458,9 @@ def run_pair(
     )
 
     print("Running ANTs SyN")
-    ants_result = run_ants_syn(
+    ants_result, timings["ants_syn_sec"] = timed_call(
+        "ants_syn",
+        run_ants_syn,
         fixed,
         moving,
         pair_out / "ants",
@@ -437,7 +469,9 @@ def run_pair(
     )
 
     print("Evaluating registration outputs")
-    return evaluate_registration(
+    evaluation, timings["evaluation_sec"] = timed_call(
+        "evaluation",
+        evaluate_registration,
         pair_id=pair_id,
         fixed_path=fixed,
         moving_path=moving,
@@ -450,6 +484,10 @@ def run_pair(
         warped_ants_labels_path=ants_result["warped_labels"],
         warped_dipy_labels_path=dipy_result["warped_labels"],
     )
+
+    timings["total_pair_sec"] = time.perf_counter() - total_start
+    evaluation["timings"] = timings
+    return evaluation
 
 
 def parse_args() -> argparse.Namespace:
@@ -494,6 +532,7 @@ def main() -> None:
         "samples": [],
         "summary": {},
         "overlap_summary": {},
+        "timing_summary": {},
     }
 
     for index, row in indexed_pairs:
@@ -509,6 +548,7 @@ def main() -> None:
         results["samples"].append(sample)
         results["summary"] = summarize(results["samples"])
         results["overlap_summary"] = summarize_overlap(results["samples"])
+        results["timing_summary"] = summarize_timings(results["samples"])
         if args.pair_index is None:
             write_json(args.out_dir / "benchmark_results.json", results)
 
