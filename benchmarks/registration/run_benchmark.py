@@ -33,7 +33,6 @@ import argparse
 import csv
 import json
 from pathlib import Path
-import random
 import statistics
 import time
 from evaluate import evaluate_registration
@@ -81,14 +80,16 @@ def read_pairs(path: str | Path) -> list[dict[str, str]]:
     return rows
 
 
-def sample_pairs(
-    rows: list[dict[str, str]], n: int | None, seed: int
+def select_pairs(
+    rows: list[dict[str, str]], n: int | None
 ) -> list[dict[str, str]]:
     if n is None:
         return rows
+    if n < 0:
+        raise ValueError(f"Requested n={n}, but n must be non-negative.")
     if n > len(rows):
         raise ValueError(f"Requested n={n}, but only found {len(rows)} pairs.")
-    return random.Random(seed).sample(rows, n)
+    return rows[:n]
 
 
 def select_pair_indices(
@@ -108,7 +109,13 @@ def get_pair_id(row: dict[str, str], index: int) -> str:
     return pair_id or f"pair_{index:04d}"
 
 
-def reslice_by_factor(in_path: str | Path, out_path: str | Path, factor: float) -> Path:
+def reslice_by_factor(
+    in_path: str | Path,
+    out_path: str | Path,
+    factor: float,
+    *,
+    order: int = 1,
+) -> Path:
     in_path = Path(in_path)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,7 +134,7 @@ def reslice_by_factor(in_path: str | Path, out_path: str | Path, factor: float) 
 
     zooms = img.header.get_zooms()[:3]
     new_zooms = tuple(float(zoom) * factor for zoom in zooms)
-    data_rs, affine_rs = reslice(data, img.affine, zooms, new_zooms)
+    data_rs, affine_rs = reslice(data, img.affine, zooms, new_zooms, order=order)
 
     out_img = nib.Nifti1Image(data_rs.astype(np.float32), affine_rs)
     nib.save(out_img, str(out_path))
@@ -160,39 +167,58 @@ def skull_strip(
     out_labels_path: str | Path,
     *,
     use_cuda: bool,
+    already_skull_stripped: bool,
+    labels_path: str | Path | None = None,
 ) -> Path:
+    in_path = Path(in_path)
     out_img_path = Path(out_img_path)
     out_mask_path = Path(out_mask_path)
     out_labels_path = Path(out_labels_path)
-    if out_img_path.exists() and out_mask_path.exists() and out_labels_path.exists():
-        print(f"Reusing skull-stripped image: {out_img_path}")
-        return out_img_path
+    if (
+        (already_skull_stripped or out_img_path.exists())
+        and out_mask_path.exists()
+        and (labels_path is not None or out_labels_path.exists())
+    ):
+        return in_path if already_skull_stripped else out_img_path
 
-    print(f"Skull stripping image: {in_path}")
+    print(f"Preparing image: {in_path}")
     out_img_path.parent.mkdir(parents=True, exist_ok=True)
     img = nib.load(str(in_path))
     data = np.squeeze(img.get_fdata(dtype=np.float32))
     if data.ndim != 3:
-        raise ValueError(f"SynthSeg expects a 3D image, got {data.shape}: {in_path}")
+        raise ValueError(f"Expected a 3D image, got {data.shape}: {in_path}")
 
     data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
 
-    labels, _, mask = get_synthseg_model(use_cuda).predict(data, img.affine)
-    mask = binary_fill_holes(mask.astype(bool))
-    mask = keep_largest_component(mask)
-    brain = data * mask
-    labels = labels.astype(np.int16) * mask.astype(np.int16)
+    labels = mask = None
+    if not already_skull_stripped or (
+        labels_path is None and not out_labels_path.exists()
+    ):
+        print(f"Running SynthSeg: {in_path}")
+        labels, _, mask = get_synthseg_model(use_cuda).predict(data, img.affine)
 
-    brain_img = nib.Nifti1Image(brain.astype(np.float32), img.affine)
-    nib.save(brain_img, str(out_img_path))
+    if already_skull_stripped:
+        mask = data != 0
+        brain_path = in_path
+    else:
+        brain_path = out_img_path
+        mask = mask.astype(bool)
 
-    mask_img = nib.Nifti1Image(mask.astype(np.uint8), img.affine)
-    nib.save(mask_img, str(out_mask_path))
+    mask = keep_largest_component(binary_fill_holes(mask))
+    if not already_skull_stripped:
+        brain = data * mask
+        nib.save(nib.Nifti1Image(brain.astype(np.float32), img.affine), out_img_path)
 
-    labels_img = nib.Nifti1Image(labels, img.affine)
-    nib.save(labels_img, str(out_labels_path))
+    nib.save(nib.Nifti1Image(mask.astype(np.uint8), img.affine), out_mask_path)
 
-    return out_img_path
+    if labels_path is None and not out_labels_path.exists():
+        labels = labels.astype(np.int16) * mask.astype(np.int16)
+        nib.save(
+            nib.Nifti1Image(labels, img.affine),
+            out_labels_path,
+        )
+
+    return brain_path
 
 
 def rigid_prealign(
@@ -277,6 +303,7 @@ def prepare_pair(
     *,
     downsample_factor: float,
     use_cuda: bool,
+    already_skull_stripped: bool,
 ) -> tuple[Path, Path, Path, Path]:
     prepared_out = pair_out / "prepared"
     inputs_out = prepared_out / "inputs"
@@ -294,12 +321,31 @@ def prepare_pair(
         downsample_factor,
     )
 
+    fixed_labels = (row.get("fixed_label_path") or "").strip() or None
+    moving_labels = (row.get("moving_label_path") or "").strip() or None
+    if fixed_labels is not None:
+        fixed_labels = reslice_by_factor(
+            fixed_labels,
+            inputs_out / "fixed_labels_resliced.nii.gz",
+            downsample_factor,
+            order=0,
+        )
+    if moving_labels is not None:
+        moving_labels = reslice_by_factor(
+            moving_labels,
+            inputs_out / "moving_labels_resliced.nii.gz",
+            downsample_factor,
+            order=0,
+        )
+
     fixed_brain = skull_strip(
         fixed_resliced,
         skullstrip_out / "fixed_brain.nii.gz",
         skullstrip_out / "fixed_mask.nii.gz",
         skullstrip_out / "fixed_labels.nii.gz",
         use_cuda=use_cuda,
+        already_skull_stripped=already_skull_stripped,
+        labels_path=fixed_labels,
     )
     moving_brain = skull_strip(
         moving_resliced,
@@ -307,19 +353,23 @@ def prepare_pair(
         skullstrip_out / "moving_mask.nii.gz",
         skullstrip_out / "moving_labels.nii.gz",
         use_cuda=use_cuda,
+        already_skull_stripped=already_skull_stripped,
+        labels_path=moving_labels,
     )
+    fixed_labels = fixed_labels or skullstrip_out / "fixed_labels.nii.gz"
+    moving_labels = moving_labels or skullstrip_out / "moving_labels.nii.gz"
 
     moving_prealigned = rigid_prealign(
         fixed_brain,
         moving_brain,
         pair_out / "prealign" / "moving_rigid_to_fixed.nii.gz",
-        skullstrip_out / "moving_labels.nii.gz",
+        moving_labels,
         pair_out / "prealign" / "moving_labels_rigid_to_fixed.nii.gz",
     )
     return (
         fixed_brain,
         moving_prealigned,
-        skullstrip_out / "fixed_labels.nii.gz",
+        fixed_labels,
         pair_out / "prealign" / "moving_labels_rigid_to_fixed.nii.gz",
     )
 
@@ -452,6 +502,7 @@ def run_pair(
         pair_out,
         downsample_factor=args.downsample_factor,
         use_cuda=args.use_cuda,
+        already_skull_stripped=args.already_skull_stripped,
     )
 
     print("Running DIPY SyN")
@@ -507,9 +558,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir", default=Path("outputs/registration_benchmark"), type=Path
     )
-    parser.add_argument("--n", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--n",
+        type=int,
+        default=None,
+        help="Run only the first N pairs from the CSV, in file order.",
+    )
     parser.add_argument("--downsample-factor", type=float, default=1.0)
+    parser.add_argument(
+        "--already-skull-stripped",
+        action="store_true",
+        help=(
+            "Treat input images as already skull stripped and derive the "
+            "evaluation mask from nonzero voxels."
+        ),
+    )
     parser.add_argument("--use-cuda", action="store_true")
     parser.add_argument(
         "--pair-index",
@@ -523,7 +586,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_yaml(args.config)
-    pairs = sample_pairs(read_pairs(args.pairs), args.n, args.seed)
+    pairs = select_pairs(read_pairs(args.pairs), args.n)
     indexed_pairs = select_pair_indices(pairs, args.pair_index)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -533,8 +596,8 @@ def main() -> None:
             "config_file": str(args.config),
             "config": config,
             "n_pairs": len(indexed_pairs),
-            "seed": args.seed,
             "downsample_factor": args.downsample_factor,
+            "already_skull_stripped": args.already_skull_stripped,
             "pair_index": args.pair_index,
         },
         "samples": [],
