@@ -47,7 +47,23 @@ After all jobs finish:
 
 ```bash
 python benchmarks/registration/cluster/collect_results.py \
-  --out-dir /path/to/output/run_001
+  --out-dir /path/to/output/run_001 \
+  --out-json /path/to/output/run_001/benchmark_results.json \
+  --pairs /path/to/pairs.csv \
+  --n 100
+```
+
+`--out-json` is required. `--pairs` and `--n` are optional, but they must be
+provided together. When present, the collector uses the first `N` rows from the
+CSV, matching `run_benchmark.py --n`.
+
+To collect every available pair result under the output directory, omit both
+`--pairs` and `--n`:
+
+```bash
+python benchmarks/registration/cluster/collect_results.py \
+  --out-dir /path/to/output/run_001 \
+  --out-json /path/to/output/run_001/benchmark_results.json
 ```
 
 This writes:

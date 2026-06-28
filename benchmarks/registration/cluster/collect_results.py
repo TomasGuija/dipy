@@ -4,6 +4,7 @@ Example
 -------
 python benchmarks/registration/cluster/collect_results.py \
     --out-dir outputs/oasis2_cluster_run \
+    --out-json outputs/oasis2_cluster_run/benchmark_results.json \
     --pairs data/oasis2_pairs.csv \
     --n 100
 """
@@ -134,14 +135,21 @@ def summarize_overlap(samples: list[dict]) -> dict:
 
 def collect(
     out_dir: Path,
-    pairs_path: Path,
-    n: int,
+    pairs_path: Path | None = None,
+    n: int | None = None,
 ) -> dict:
-    rows = select_pairs(read_pairs(pairs_path), n)
-    sample_paths = [
-        out_dir / get_pair_id(row, index) / "sample_result.json"
-        for index, row in enumerate(rows, start=1)
-    ]
+    if (pairs_path is None) != (n is None):
+        raise ValueError("--pairs and --n must be provided together.")
+
+    if pairs_path is None:
+        sample_paths = sorted(out_dir.glob("*/sample_result.json"))
+    else:
+        assert n is not None
+        rows = select_pairs(read_pairs(pairs_path), n)
+        sample_paths = [
+            out_dir / get_pair_id(row, index) / "sample_result.json"
+            for index, row in enumerate(rows, start=1)
+        ]
 
     if not sample_paths:
         raise FileNotFoundError(f"No sample_result.json files found under {out_dir}")
@@ -157,7 +165,7 @@ def collect(
             "out_dir": str(out_dir),
             "n_pairs": len(samples),
             "collected_from_cluster_jobs": True,
-            "pairs_file": str(pairs_path),
+            "pairs_file": str(pairs_path) if pairs_path is not None else None,
             "n": n,
         },
         "samples": samples,
@@ -172,29 +180,28 @@ def parse_args() -> argparse.Namespace:
         description="Collect registration benchmark cluster outputs."
     )
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--out-json", type=Path, default=None)
+    parser.add_argument("--out-json", required=True, type=Path)
     parser.add_argument(
         "--pairs",
         type=Path,
-        required=True,
-        help="Pair CSV used by the benchmark.",
+        default=None,
+        help="Pair CSV used by the benchmark. Must be combined with --n.",
     )
     parser.add_argument(
         "--n",
         type=int,
-        required=True,
-        help="Collect the first N pairs from the CSV.",
+        default=None,
+        help="Collect the first N pairs from --pairs.",
     )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    out_json = args.out_json or args.out_dir / "benchmark_results.json"
     results = collect(args.out_dir, args.pairs, args.n)
-    with out_json.open("w") as f:
+    with args.out_json.open("w") as f:
         json.dump(results, f, indent=2)
-    print(f"Collected {len(results['samples'])} samples into: {out_json}")
+    print(f"Collected {len(results['samples'])} samples into: {args.out_json}")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,14 @@ main benchmark script consumes only:
 fixed_path,moving_path
 ```
 
-An optional `pair_id` column can be provided to control output folder names.
+The following columns are optional:
+
+```text
+pair_id,fixed_label_path,moving_label_path
+```
+
+`pair_id` controls output folder names. Supplied label maps are used instead of
+SynthSeg labels and are resliced with nearest-neighbor interpolation when needed.
 
 ---
 
@@ -23,13 +30,15 @@ For each pair, `run_benchmark.py` applies the same preprocessing before running
 either backend:
 
 1. Reslice both images by the same downsampling factor.
-2. Skull-strip both images with SynthSeg and save the SynthSeg labels.
+2. Skull-strip both images with SynthSeg, unless the inputs are marked as already
+   skull stripped.
 3. Fill holes and keep the largest connected mask component.
 4. Rigidly prealign the moving image to the fixed image.
 5. Run DIPY SyN and ANTsPy SyN from the same prealigned inputs.
-6. Warp moving SynthSeg labels with nearest-neighbor interpolation.
+6. Warp moving labels with nearest-neighbor interpolation. Labels come from the
+   CSV when available and from SynthSeg otherwise.
 7. Evaluate both warped outputs inside the fixed brain mask with
-   framework-independent intensity metrics and SynthSeg-derived label overlap.
+   framework-independent intensity metrics and label overlap.
 
 The current evaluator computes:
 
@@ -71,6 +80,16 @@ ants          ANTsPy-specific parameters
 The parameter mapping follows the notes in
 [DIPY vs ANTs SyN: Fair Comparison Guide](dipy_ants_syn_comparison.md).
 
+Two default configurations are provided:
+
+```text
+configs/syn_cc_default.yaml  cross-correlation using DIPY CCMetric and ANTs CC
+configs/syn_mi_default.yaml  mutual information using DIPY MIMetric and ANTs Mattes
+```
+
+For MI, `registration.metric` is `MI` and `registration.mi_nbins` controls the
+number of histogram bins used by both backends.
+
 ---
 
 ## Dataset Adapters
@@ -97,6 +116,13 @@ python run_benchmark.py `
 ```
 
 Use `--use-cuda` to run SynthSeg with CUDA.
+
+Use `--already-skull-stripped` when the input NIfTI images are already skull
+stripped. The benchmark then reuses the input images, derives evaluation masks
+from their nonzero voxels, and runs SynthSeg only when labels are absent from the
+CSV.
+
+`--n N` always selects the first `N` pairs in CSV order.
 
 ---
 
