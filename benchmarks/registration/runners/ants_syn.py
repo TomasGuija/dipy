@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import ants
@@ -52,6 +53,7 @@ def run_ants_syn(
     else:
         raise ValueError(f"Unsupported ANTs metric: {metric_name}")
 
+    syn_start = time.perf_counter()
     reg = ants.registration(
         fixed=fixed,
         moving=moving,
@@ -67,10 +69,18 @@ def run_ants_syn(
         use_legacy_histogram_matching=False,
         verbose=True,
     )
+    syn_runtime_sec = time.perf_counter() - syn_start
+    print(
+        f"ants_syn time: {syn_runtime_sec:.2f} s "
+        f"({syn_runtime_sec / 60:.2f} min)"
+    )
 
     warped_path = out_dir / "warped_ants.nii.gz"
     ants.image_write(reg["warpedmovout"], str(warped_path))
-    result = {"warped_image": str(warped_path)}
+    result = {
+        "warped_image": str(warped_path),
+        "syn_runtime_sec": syn_runtime_sec,
+    }
 
     if moving_labels_path is not None:
         moving_labels = ants.image_read(str(moving_labels_path))

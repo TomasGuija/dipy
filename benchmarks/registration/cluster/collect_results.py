@@ -20,6 +20,9 @@ import statistics
 METRIC_NAMES = ("ncc", "nmi")
 OVERLAP_SECTIONS = ("whole_brain", "mean_labels")
 OVERLAP_METRICS = ("dice", "jaccard")
+TIMING_KEYS = ("dipy_syn_sec", "ants_syn_sec")
+
+
 def read_json(path: Path) -> dict:
     with path.open() as f:
         return json.load(f)
@@ -47,15 +50,7 @@ def select_pairs(rows: list[dict[str, str]], n: int) -> list[dict[str, str]]:
 def summarize_timings(samples: list[dict]) -> dict:
     summary = {}
 
-    available_keys = sorted(
-        {
-            key
-            for sample in samples
-            for key in sample.get("timings", {})
-        }
-    )
-
-    for key in available_keys:
+    for key in TIMING_KEYS:
         values = [
             sample["timings"][key]
             for sample in samples
@@ -168,7 +163,6 @@ def collect(
             "pairs_file": str(pairs_path) if pairs_path is not None else None,
             "n": n,
         },
-        "samples": samples,
         "summary": summarize(samples),
         "overlap_summary": summarize_overlap(samples),
         "timing_summary": summarize_timings(samples),
@@ -201,7 +195,10 @@ def main() -> None:
     results = collect(args.out_dir, args.pairs, args.n)
     with args.out_json.open("w") as f:
         json.dump(results, f, indent=2)
-    print(f"Collected {len(results['samples'])} samples into: {args.out_json}")
+    print(
+        f"Collected summaries for {results['metadata']['n_pairs']} samples "
+        f"into: {args.out_json}"
+    )
 
 
 if __name__ == "__main__":

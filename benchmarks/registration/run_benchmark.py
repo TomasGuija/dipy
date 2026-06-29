@@ -34,7 +34,6 @@ import csv
 import json
 from pathlib import Path
 import statistics
-import time
 from evaluate import evaluate_registration
 import nibabel as nib
 import numpy as np
@@ -54,14 +53,6 @@ from dipy.align.transforms import RigidTransform3D, TranslationTransform3D
 _SYNTHSEG_MODEL = None
 METRIC_NAMES = ("ncc", "nmi")
 OVERLAP_METRIC_NAMES = ("dice", "jaccard")
-
-
-def timed_call(name: str, func, *args, **kwargs):
-    start = time.perf_counter()
-    result = func(*args, **kwargs)
-    elapsed = time.perf_counter() - start
-    print(f"{name} time: {elapsed:.2f} s ({elapsed / 60:.2f} min)")
-    return result, elapsed
 
 
 def load_yaml(path: str | Path) -> dict:
@@ -285,7 +276,9 @@ def rigid_prealign(
 
     if moving_labels_path is not None and out_labels_path is not None:
         moving_labels_img = nib.load(str(moving_labels_path))
-        moving_labels = np.squeeze(np.asarray(moving_labels_img.dataobj))
+        moving_labels = np.ascontiguousarray(
+            np.squeeze(np.asarray(moving_labels_img.dataobj)).astype(np.float32)
+        )
         prealigned_labels = rigid.transform(moving_labels, interpolation="nearest")
         nib.save(
             nib.Nifti1Image(
@@ -492,12 +485,8 @@ def run_pair(
     args: argparse.Namespace,
 ) -> dict:
     pair_out = out_dir / pair_id
-    timings = {}
-    total_start = time.perf_counter()
 
-    (fixed, moving, fixed_labels, moving_labels), timings["prepare_pair_sec"] = timed_call(
-        "prepare_pair",
-        prepare_pair,
+    fixed, moving, fixed_labels, moving_labels = prepare_pair(
         row,
         pair_out,
         downsample_factor=args.downsample_factor,
@@ -506,9 +495,7 @@ def run_pair(
     )
 
     print("Running DIPY SyN")
-    dipy_result, timings["dipy_syn_sec"] = timed_call(
-        "dipy_syn",
-        run_dipy_syn,
+    dipy_result = run_dipy_syn(
         fixed,
         moving,
         pair_out / "dipy",
@@ -517,9 +504,7 @@ def run_pair(
     )
 
     print("Running ANTs SyN")
-    ants_result, timings["ants_syn_sec"] = timed_call(
-        "ants_syn",
-        run_ants_syn,
+    ants_result = run_ants_syn(
         fixed,
         moving,
         pair_out / "ants",
@@ -528,9 +513,7 @@ def run_pair(
     )
 
     print("Evaluating registration outputs")
-    evaluation, timings["evaluation_sec"] = timed_call(
-        "evaluation",
-        evaluate_registration,
+    evaluation = evaluate_registration(
         pair_id=pair_id,
         fixed_path=fixed,
         moving_path=moving,
@@ -544,8 +527,10 @@ def run_pair(
         warped_dipy_labels_path=dipy_result["warped_labels"],
     )
 
-    timings["total_pair_sec"] = time.perf_counter() - total_start
-    evaluation["timings"] = timings
+    evaluation["timings"] = {
+        "dipy_syn_sec": dipy_result["syn_runtime_sec"],
+        "ants_syn_sec": ants_result["syn_runtime_sec"],
+    }
     return evaluation
 
 

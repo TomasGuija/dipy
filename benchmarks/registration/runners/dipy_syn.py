@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import nibabel as nib
@@ -72,12 +73,18 @@ def run_dipy_syn(
     )
     sdr.energy_window = registration_cfg["convergence_window"]
 
+    syn_start = time.perf_counter()
     mapping = sdr.optimize(
         fixed,
         moving,
         static_grid2world=fixed_img.affine,
         moving_grid2world=moving_img.affine,
         prealign=None,
+    )
+    syn_runtime_sec = time.perf_counter() - syn_start
+    print(
+        f"dipy_syn time: {syn_runtime_sec:.2f} s "
+        f"({syn_runtime_sec / 60:.2f} min)"
     )
 
     warped = mapping.transform(moving)
@@ -86,7 +93,10 @@ def run_dipy_syn(
 
     nib.save(nib.Nifti1Image(warped.astype(np.float32), fixed_img.affine), warped_path)
 
-    result = {"warped_image": str(warped_path)}
+    result = {
+        "warped_image": str(warped_path),
+        "syn_runtime_sec": syn_runtime_sec,
+    }
     if moving_labels_path is not None:
         moving_labels_img = nib.load(str(moving_labels_path))
         moving_labels = as_3d(np.asarray(moving_labels_img.dataobj), moving_labels_path)
