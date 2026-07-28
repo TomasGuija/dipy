@@ -125,14 +125,14 @@ ANTs separates deformation regularization into two explicit SyN parameters:
 SyN[grad_step, flow_sigma, total_sigma]
 ```
 
-* `flow_sigma` smooths the **update field** before composition. Despite its name, ANTs passes this value to ITK as the Gaussian **variance** in voxel space.
+* `flow_sigma` smooths the **update field**, i.e. the incremental displacement estimated at the current iteration before it is composed into the running deformation.
 * `total_sigma` smooths the **accumulated total field**, i.e. the running deformation after update composition.
 
 ### DIPY
 
 DIPY's `SymmetricDiffeomorphicRegistration` does not expose direct equivalents of either `flow_sigma` or `total_sigma`.
 
-Instead, update smoothing is implemented inside metric classes, before normalization and composition. Parameters such as `CCMetric.sigma_diff` and `MIMetric.smooth` are passed to SciPy as the Gaussian **standard deviation** in voxel space. Therefore, match them using `ANTs flow_sigma = DIPY sigma**2` (for example, DIPY `sigma=2` corresponds to ANTs `flow_sigma=4`).
+Instead, update smoothing is implemented inside metric classes, before the update field is normalized and composed by the SyN optimizer. These parameters are therefore at most conceptually similar to ANTs' `flow_sigma`, not `total_sigma`.
 
 There is currently no direct DIPY equivalent of ANTs' `total_sigma`.
 
@@ -230,7 +230,7 @@ ANTsPy `registration()` does not expose these inverse-field inversion parameters
 
 6. **Treat update smoothing carefully**
 
-   * ANTs `flow_sigma` is a variance, while the DIPY metric parameter is a standard deviation: use `flow_sigma = sigma_diff**2` (or `smooth**2` for MI).
+   * For CC, compare ANTs `flow_sigma` with DIPY `CCMetric.sigma_diff`, but remember this is only conceptual.
 
 7. **Avoid masks, multivariate metrics, and restricted transforms in the first benchmark**
 
