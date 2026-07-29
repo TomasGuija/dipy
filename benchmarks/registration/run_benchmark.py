@@ -280,9 +280,13 @@ def rigid_prealign(
             np.squeeze(np.asarray(moving_labels_img.dataobj)).astype(np.float32)
         )
         prealigned_labels = rigid.transform(moving_labels, interpolation="nearest")
+        label_header = fixed_img.header.copy()
+        label_header.set_data_dtype(np.int16)
         nib.save(
             nib.Nifti1Image(
-                prealigned_labels.astype(np.int16), fixed_img.affine, fixed_img.header
+                prealigned_labels.astype(np.int16),
+                fixed_img.affine,
+                label_header,
             ),
             str(out_labels_path),
         )

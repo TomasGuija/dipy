@@ -99,7 +99,10 @@ def run_dipy_syn(
     }
     if moving_labels_path is not None:
         moving_labels_img = nib.load(str(moving_labels_path))
-        moving_labels = as_3d(np.asarray(moving_labels_img.dataobj), moving_labels_path)
+        moving_labels = np.ascontiguousarray(
+            as_3d(np.asarray(moving_labels_img.dataobj), moving_labels_path),
+            dtype=np.int16,
+        )
         warped_labels = mapping.transform(moving_labels, interpolation="nearest")
         warped_labels_path = out_dir / "warped_dipy_labels.nii.gz"
         nib.save(
