@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 from numpy.testing import (
     assert_,
+    assert_allclose,
     assert_array_almost_equal,
     assert_equal,
     assert_raises,
@@ -246,6 +247,84 @@ def test_lpca_dtype():
     assert_(np.all(S0ns >= 0))
     # And no wrap-around to crazy high values:
     assert_(np.all(S0ns <= 200))
+
+
+@set_random_number_generator()
+def test_genpca_fast_matches_python(rng=None):
+    data = 100 + 2 * rng.standard_normal((7, 7, 7, 8))
+
+    for dtype in (np.float32, np.float64):
+        arr = data.astype(dtype)
+        kwargs = {
+            "sigma": float(np.std(arr)),
+            "patch_radius": 1,
+            "pca_method": "eig",
+        }
+        expected = genpca(arr, fast=False, **kwargs)
+        actual = genpca(arr, fast=True, **kwargs)
+
+        assert_allclose(actual, expected, rtol=1e-6, atol=2e-5)
+
+        expected, expected_sigma = genpca(
+            arr,
+            fast=False,
+            patch_radius=1,
+            return_sigma=True,
+        )
+        actual, actual_sigma = genpca(
+            arr,
+            fast=True,
+            patch_radius=1,
+            return_sigma=True,
+        )
+
+        assert_allclose(actual, expected, rtol=1e-6, atol=2e-5)
+        assert_allclose(actual_sigma, expected_sigma, rtol=1e-6, atol=2e-5)
+
+
+@set_random_number_generator()
+def test_genpca_fast_supports_complex_and_preserves_sigma(rng=None):
+    complex_data = (
+        100
+        + 100j
+        + (2 / np.sqrt(2))
+        * (rng.standard_normal((7, 7, 7, 8)) + 1j * rng.standard_normal((7, 7, 7, 8)))
+    )
+
+    for dtype in (np.complex64, np.complex128):
+        arr = complex_data.astype(dtype)
+        expected, expected_sigma = genpca(
+            arr,
+            sigma=2.0,
+            fast=False,
+            patch_radius=1,
+            return_sigma=True,
+        )
+        actual, actual_sigma = genpca(
+            arr,
+            sigma=2.0,
+            fast=True,
+            patch_radius=1,
+            return_sigma=True,
+        )
+        assert_allclose(actual, expected, rtol=5e-6, atol=2e-4)
+        assert_equal(expected_sigma, 2.0)
+        assert_equal(actual_sigma, 2.0)
+
+        expected, expected_sigma = genpca(
+            arr,
+            fast=False,
+            patch_radius=1,
+            return_sigma=True,
+        )
+        actual, actual_sigma = genpca(
+            arr,
+            fast=True,
+            patch_radius=1,
+            return_sigma=True,
+        )
+        assert_allclose(actual, expected, rtol=5e-6, atol=2e-4)
+        assert_allclose(actual_sigma, expected_sigma, rtol=5e-6, atol=2e-4)
 
 
 def test_lpca_wrong():

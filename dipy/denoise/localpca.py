@@ -5,6 +5,7 @@ import numpy as np
 from scipy.linalg import eigh
 from scipy.linalg.lapack import dgesvd as real_svd, zgesvd as complex_svd
 
+from dipy.denoise.eig_localpca import genpca_core as genpca_core_fast
 from dipy.denoise.pca_noise_estimate import pca_noise_estimate
 from dipy.utils.deprecator import warning_for_keywords
 
@@ -185,6 +186,7 @@ def genpca(
     mask=None,
     patch_radius=2,
     pca_method="eig",
+    fast=True,
     tau_factor=None,
     return_sigma=False,
     out_dtype=None,
@@ -215,6 +217,8 @@ def genpca(
         decomposition (svd) for principal component analysis. The default
         method is 'eig' which is faster. However, occasionally 'svd' might be
         more accurate.
+    fast : bool, optional
+        Use the optimized Cython implementation when ``pca_method="eig"``.
     tau_factor : float, optional
         Thresholding of PCA eigenvalues is done by nulling out eigenvalues that
         are smaller than:
@@ -308,6 +312,23 @@ def genpca(
     dim = arr.shape[-1]
     if tau_factor is None:
         tau_factor = 1 + np.sqrt(dim / num_samples)
+
+    use_fast = fast and not is_svd
+    if use_fast:
+        denoised = genpca_core_fast(
+            arr,
+            mask=mask,
+            var_map=None if sigma is None else var,
+            patch_radius_x=int(patch_radius_arr[0]),
+            patch_radius_y=int(patch_radius_arr[1]),
+            patch_radius_z=int(patch_radius_arr[2]),
+            tau_factor=tau_factor,
+            return_sigma=return_sigma and sigma is None,
+            out_dtype=out_dtype,
+        )
+        if return_sigma and sigma is not None:
+            return denoised, sigma
+        return denoised
 
     theta = np.zeros(arr.shape, dtype=calc_dtype)
     thetax = np.zeros(arr.shape, dtype=calc_dtype)
